@@ -3,7 +3,9 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from create_dataset.house_dataset_creator import HouseDatasetCreator
 
-creator = HouseDatasetCreator('AIzaSyCOUyvZo0K1lobh_wMK4oqzwCaV8xzxKhk')
+api_key = os.getenv("GOOGLE_API_KEY")
+creator = HouseDatasetCreator(api_key)
+
 iphone_res = '3024x4032'
 addresses = [
     '6682 Trigo Rd, Goleta, CA 93117', 

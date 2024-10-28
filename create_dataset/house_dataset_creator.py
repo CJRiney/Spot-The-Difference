@@ -61,7 +61,7 @@ class HouseDatasetCreator:
             print(f"Failed to fetch address: {response.status_code}")
             return None
             
-    def fetch_street_view_metadata(self, lat: float, lon: float):
+    def fetch_camera_pos(self, lat: float, lon: float):
         """Fetch camera location so we can point the heading at the house."""
         metadata_url = f"https://maps.googleapis.com/maps/api/streetview/metadata?location={lat},{lon}&key={self.api_key}"
         response = requests.get(metadata_url)
@@ -142,6 +142,10 @@ class HouseDatasetCreator:
         Returns:
             bool: True if the image was successfully fetched, False otherwise.
         """
+        # If output_path has a directory, create it if it doesn't exist
+        output_dir = Path(output_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
         # Fetch latitude and longitude from the house address
         house_lat, house_lon = self.fetch_coords_from_addr(address)
         
@@ -150,7 +154,7 @@ class HouseDatasetCreator:
             return False
 
         # Fetch the camera's location (latitude and longitude) from Street View metadata
-        camera_lat, camera_lon = self.fetch_street_view_metadata(house_lat, house_lon)
+        camera_lat, camera_lon = self.fetch_camera_pos(house_lat, house_lon)
         
         if camera_lat is None or camera_lon is None:
             logger.error(f"Could not fetch Street View metadata for coordinates: {house_lat}, {house_lon}")

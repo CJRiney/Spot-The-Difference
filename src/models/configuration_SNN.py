@@ -60,6 +60,7 @@ class SNN(nn.Module):
         base_output_shape = self.get_base_output_shape()
         self.added_layer = nn.Linear(base_output_shape[-1], base_output_shape[-1]) if snn_args.add_layer else None
         
+        # If train_added_layer_only is selected, freeze everything except the added layer
         if snn_args.train_added_layer_only:
             for param in self.base_model.parameters():
                 param.requires_grad = False
