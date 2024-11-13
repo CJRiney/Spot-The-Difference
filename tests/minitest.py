@@ -34,6 +34,7 @@ similar_url_filenames = [
 ]
 
 dissimilar_url_filenames = [
+    ("https://photos.zillowstatic.com/fp/d5803d56647b5f92a6bd5a4eb4d4f6cc-cc_ft_384.webp", "./images/6682Trigo2.jpg"),
     ("https://photos.zillowstatic.com/fp/5a59f5c1175789171cf60e9df904183f-cc_ft_1536.webp", "./images/diffHouse1.jpg"),
     ("https://photos.zillowstatic.com/fp/fb4fcfd9dfaba9b8e0e1617bceb61001-cc_ft_1536.webp", "./images/diffHouse2.jpg"),
     ("https://photos.zillowstatic.com/fp/20b8d592c0974189c4c6cd64cc60ec57-cc_ft_1536.webp", "./images/diffHouse3.jpg"),
@@ -52,21 +53,21 @@ input_tensor = torch.stack([transform(img) for img in input_images])
 similar_tensors = torch.stack([transform(img) for img in similar_images])
 dissimilar_tensors = torch.stack([transform(img) for img in dissimilar_images])
 
+torch.manual_seed(1)
+
 # Test training here
-model.train()
 output = model(input_tensor, similar_tensors, dissimilar_tensors)
 results = { "Loss": output.item() }
 
 with open(train_path, 'w', encoding='utf-8') as f: json.dump(results, f, indent=4)
 
 # Test evaluation here
-model.eval()
-similar_outputs = model(input_tensor, similar_tensors)
-dissimilar_outputs = model(input_tensor, dissimilar_tensors)
+# similar_outputs = model(input_tensor, similar_tensors)
+# dissimilar_outputs = model(input_tensor, dissimilar_tensors)
 
-results = {
-    "Similar image scores": similar_outputs.tolist(),
-    "Dissimilar image scores": dissimilar_outputs.tolist(),
-}
+# results = {
+#     "Similar image scores": similar_outputs.tolist(),
+#     "Dissimilar image scores": dissimilar_outputs.tolist(),
+# }
 
-with open(test_path, 'w', encoding='utf-8') as f: json.dump(results, f, indent=4)
+# with open(test_path, 'w', encoding='utf-8') as f: json.dump(results, f, indent=4)

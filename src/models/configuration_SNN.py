@@ -22,6 +22,8 @@ class SNN(nn.Module):
     Args:
         snn_args.model_name (str): 
             The name of the vision model to use from the timm library.
+        snn_args.train (bool):
+            Determines whether the model will be in training or evaluation mode.
         snn_args.similarity_fn (str):
             Defines the similarity function used in the SNN. 
             Must be 'cosine_similarity' or 'euclidean_distance'.
@@ -45,10 +47,11 @@ class SNN(nn.Module):
         
         self.snn_args = snn_args
         
+        if not snn_args.add_layer and snn_args.train_added_layer_only:
+            raise ValueError("'train_added_layer_only' is set to True while 'add_layer' is set to False.")
+        
         self.base_model = (timm.create_model(snn_args.model_name, pretrained=True) if snn_args.use_logits
                       else timm.create_model(snn_args.model_name, pretrained=True, num_classes=0))
-        
-        self.base_model.eval()
         
         if snn_args.similarity_fn == "cosine_similarity": 
             self.snn_args.similarity_fn = "cosine_similarity"
@@ -60,13 +63,28 @@ class SNN(nn.Module):
         base_output_shape = self.get_base_output_shape()
         self.added_layer = nn.Linear(base_output_shape[-1], base_output_shape[-1]) if snn_args.add_layer else None
         
-        # If train_added_layer_only is selected, freeze everything except the added layer
-        if snn_args.train_added_layer_only:
+        # Set the base model and the added layer to eval/train mode based on user configurations
+        if not snn_args.train:
+            self.base_model.eval()
+            self.added_layer.eval()
+            
+        elif snn_args.train and snn_args.train_added_layer_only:
+            # Freeze the base model parameters first
             for param in self.base_model.parameters():
                 param.requires_grad = False
 
+            self.base_model.eval()  # Set to eval mode after freezing
+            self.added_layer.train()  # Keep the added layer trainable
+
+            # Ensure the added layer is trainable
             for param in self.added_layer.parameters():
                 param.requires_grad = True
+                
+        else:
+            self.base_model.train()
+            if self.added_layer:
+                self.added_layer.train()
+
     
     def get_base_input_shape(self):
         data_config = resolve_data_config(self.base_model.pretrained_cfg, model=self.base_model)
@@ -86,6 +104,9 @@ class SNN(nn.Module):
             return transformed_layers
         
         return images
+    
+    def get_summary(self):
+        return self.snn_args
     
     def similarity(self, a: torch.Tensor, b: torch.Tensor, dim=1):
         if self.snn_args.similarity_fn == "cosine_similarity":
@@ -131,16 +152,16 @@ class SNN(nn.Module):
         if target_images.ndim != 4:
             raise ValueError(f"Expected target images with 4 dimensions but got target images with {target_images.ndim} dimenions instead.")
         
-        if self.training:
+        if self.snn_args.train:
             if negative_images == None:
                 raise ValueError("At least one negative image must be provided in training mode.")
             if negative_images.ndim != 4:
                 raise ValueError(f"Expected negative images with 4 dimensions but got negative images with {negative_images.ndim} dimenions instead.")
         
-        if not self.training and negative_images != None:
+        if not self.snn_args.train and negative_images != None:
             raise ValueError("Cannot pass negative_images in eval mode.")
         
-        if self.training:
+        if self.snn_args.train:
             # Forward logic for training mode
             input_images_features    = self.base_model(input_images)
             target_images_features   = self.base_model(target_images)
@@ -154,18 +175,22 @@ class SNN(nn.Module):
                 negative_images_features
             )
                 
-            target_images_similarity   = self.similarity(input_images_final, target_images_final, dim=1)
-            negative_images_similarity = self.similarity(input_images_final, negative_images_final, dim=1)
+            target_images_similarity   = self.similarity(input_images_final, target_images_final)
+            negative_images_similarity = self.similarity(input_images_final, negative_images_final)
             
-            loss = -torch.log(torch.exp(target_images_similarity) / torch.sum(torch.exp(negative_images_similarity))).mean()
+            loss = -torch.log(
+                    torch.exp(target_images_similarity) / 
+                    (torch.exp(target_images_similarity) + torch.sum(torch.exp(negative_images_similarity)))
+                ).mean()
+            
             return loss
                 
         # Forward logic for eval mode
-        input_images_features   = self.base_model(input_images)
+        input_images_features  = self.base_model(input_images)
         target_images_features = self.base_model(target_images)
         
         (input_images_final,
-        target_images_final)  = self.get_final_layers(
+        target_images_final) = self.get_final_layers(
             input_images_features,
             target_images_features)
             

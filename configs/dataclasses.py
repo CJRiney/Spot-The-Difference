@@ -12,6 +12,14 @@ class SNNArguments:
         default=None,
         metadata={"help": ("The name of the vision model to use from the timm library.")},
     )
+    
+    train: bool = field(
+        default=False,
+        metadata={"help": (
+                "Determines whether the model will be in training or evaluation mode."
+            )},
+    )
+    
     similarity_fn: str = field(
         default="cosine_similarity",
         metadata={
@@ -89,3 +97,11 @@ class ONNXExportArguments:
             raise ValueError("'input_names' must be a list of input names.")
         if not isinstance(self.output_names, list):
             raise ValueError("'output_names' must be a list of output names.")
+        
+@dataclass
+class TrainArguments:
+    """
+        Arguments pertaining to training the SNN
+    """
+    
+    

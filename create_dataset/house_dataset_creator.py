@@ -4,13 +4,62 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from configs.log_config import logger
 
 from pathlib import Path
+from PIL import Image, ImageEnhance
 
 import requests
 import math
+import overpy
 
 class HouseDatasetCreator:
     def __init__(self, api_key):
         self.api_key = api_key
+
+    def get_addresses(self, city):
+        # Initialize the API
+        api = overpy.Overpass()
+
+        # Define the query
+        query = f"""
+            area["name"="{city}"]->.searchArea;
+            (
+            way["building"="residential"](area.searchArea);
+            );
+            out body;
+        """
+
+        # Execute the query
+        result = api.query(query)
+
+        # Collect addresses
+        addresses = []
+        for way in result.ways:
+            address = {}
+            
+            for tag in way.tags:
+                if tag.startswith("addr:"):
+                    address[tag] = way.tags[tag]
+                    
+            # Only add if there's meaningful address information
+            if "addr:housenumber" in address and "addr:street" in address and "addr:city" in address:
+                address_str = ", ".join(
+                    filter(
+                        None,  # Filters out any None or empty string values
+                        [
+                            address.get('addr:housenumber', ''),
+                            address.get('addr:street', ''),
+                            address.get('addr:city', ''),
+                            address.get('addr:state', ''),
+                            address.get('addr:postcode', '')
+                        ]
+                    )
+                )
+                
+                addresses.append(address_str)
+
+        # Print and return the addresses
+        logger.info(f"Found {len(addresses)} addresses in {city}")
+        return addresses
+
     
     def fetch_coords_from_addr(self, address):
         """Convert an address to coordinates with the Google Geocode API"""
@@ -104,7 +153,8 @@ class HouseDatasetCreator:
     def fetch_google_street_view(self, size: str,
                                  lat: float, lon: float, 
                                  heading: float, pitch: float,
-                                 output_path: str
+                                 zoom: int, brightness: float,
+                                 flip: str, output_path: str
                                  ) -> bool:
         
         """Fetch Google Street View image given coordinates."""
@@ -114,6 +164,7 @@ class HouseDatasetCreator:
             'location': f'{lat},{lon}', 
             'heading': heading, 
             'pitch': pitch, 
+            'zoom': zoom,
             'key': self.api_key 
         }
         
@@ -123,21 +174,76 @@ class HouseDatasetCreator:
             with open(output_path, 'wb') as file:
                 file.write(response.content)
                 
+            # Open image
+            img = Image.open(output_path)
+
+            # Apply zoom
+            if zoom != 1.0:
+                width, height = img.size
+                new_width = int(width * zoom)
+                new_height = int(height * zoom)
+                
+                # Calculate the crop area based on the zoom
+                crop_width = (new_width - width) / 2
+                crop_height = (new_height - height) / 2
+                
+                # Set crop boundaries
+                left = int(crop_width)
+                top = int(crop_height)
+                right = int(crop_width + width)
+                bottom = int(crop_height + height)
+                
+                # Crop and resize the image
+                box = (left, top, right, bottom)
+                img = img.resize((new_width, new_height), Image.LANCZOS)
+                img = img.crop(box)
+                
+            # Adjust brightness
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(brightness)
+            
+            # Flip the image
+            if flip == 'horizontal' or flip == 'both': img = img.transpose(Image.FLIP_LEFT_RIGHT) 
+            if flip == 'vertical' or flip == 'both': img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            if flip not in ['horizontal', 'vertical', 'both'] and flip != None:
+                logger.error("Flip must be set to 'horizontal', 'vertical', or 'both'. This image will not be flipped.")
+            
+            # Save image
+            img.save(output_path)
+                
             logger.info(f"Image saved as {output_path}")
             return True
         
         else:
             logger.error(f"Error fetching image: {response.status_code}, {response.text}")
             return False
-        
-    def fetch_house_image(self, size: str, address: str, output_path: str) -> bool:
+
+    def fetch_house_image(
+        self, 
+        size: str, 
+        address: str, 
+        output_path: str, 
+        lat_change: float = 0, 
+        lon_change: float = 0,
+        pitch = 0,
+        zoom: int = 1,  # Default zoom level
+        brightness: float = 1.0,
+        flip: str = None # Default rotation angle
+    ) -> bool:
         """
-        Fetch a Google Street View image of a house using its address.
+        Fetch a Google Street View image of a house using its address,
+        with options for zoom and rotation for data augmentation.
 
         Args:
             size (str): Image size for Street View, e.g., "640x640".
             address (str): The house's physical address.
             output_path (str): File path where the image will be saved.
+            lat_change (float): Latitude offset for changing angle.
+            lon_change (float): Longitude offset for changing angle.
+            brightness (float): Brightness factor of image.
+            zoom (int): Zoom level for Street View (0-5).
+            flip (str): 'horizontal', 'vertical', or 'both'.
+                decides whether to flip image horizontally, vertically, or both.
 
         Returns:
             bool: True if the image was successfully fetched, False otherwise.
@@ -161,15 +267,18 @@ class HouseDatasetCreator:
             return False
 
         # Calculate the heading to point the camera towards the house
-        heading = self.calculate_heading(camera_lat, camera_lon, house_lat, house_lon)
+        heading = self.calculate_heading(camera_lat + lat_change, camera_lon + lon_change, house_lat, house_lon)
 
-        # Fetch and save the Google Street View image
+        # Fetch and save the Google Street View image with the specified zoom level
         success = self.fetch_google_street_view(
-            size=size, 
-            lat=house_lat, 
-            lon=house_lon, 
-            heading=heading, 
-            pitch=0, 
+            size=size,
+            lat=house_lat,
+            lon=house_lon,
+            heading=heading,
+            pitch=pitch,
+            zoom=zoom, 
+            brightness=brightness,
+            flip=flip,
             output_path=output_path
         )
 
@@ -178,6 +287,7 @@ class HouseDatasetCreator:
             return False
 
         return True
+
     
     def fetch_images_houses_nearby(self, size: int, address: str, radius: float, output_dir: str) -> bool:
         """
@@ -223,9 +333,11 @@ class HouseDatasetCreator:
                     clean_address = nearby_address.replace(' ', '').replace(',', '')
                     output_path = f"{output_dir}/{clean_address}.jpg"
                     
-                    self.fetch_house_image(size=size, 
-                                           address=nearby_address, 
-                                           output_path=output_path)
+                    try:
+                        self.fetch_house_image(size=size, 
+                                            address=nearby_address, 
+                                            output_path=output_path)
+                    except: continue
                 
                 return True
             
