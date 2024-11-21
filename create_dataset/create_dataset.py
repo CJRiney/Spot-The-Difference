@@ -1,6 +1,5 @@
-import requests
 import logging
-import sys, os
+import os
 import random
 
 from house_dataset_creator import HouseDatasetCreator
@@ -20,8 +19,24 @@ cities = [
     'Santa Barbara',
     'Vallejo',
     'Isla Vista',
-    'Goleta'
+    'Goleta',
+    'Alameda',
+    'San Rafael',
+    'Pacifica',
+    'Redwood City',
+    'Walnut Creek',
+    'Mill Valley',
+    'San Mateo',
+    'Pleasanton',
+    'Santa Clara',
+    'Menlo Park',
+    'Encinitas',
+    'Oceanside',
+    'San Marcos',
+    'El Cerrito',
+    'Foster City',
 ]
+
 
 idx = -1
 for city in cities:
@@ -31,7 +46,9 @@ for city in cities:
     for addr in addresses:
         idx += 1
         
-        dataset_dir = f'./datasets/set_{idx}'
+        dataset_dir = (f'./datasets2/train/set_{idx}' 
+                       if random.randint(0, 100) < 80 
+                       else f'./datasets2/eval/set_{idx}')
 
         if os.path.isdir(dataset_dir):
             logger.info(f'{dataset_dir} exists, proceeding.')
@@ -67,8 +84,4 @@ for city in cities:
                                    address=addr, 
                                    radius=radius, 
                                    output_dir=f'{dataset_dir}/negatives')
-        
-import os
-
-datasets_path = "./datasets"
 
